@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	palApiVersion = 2
+	palApiVersion = 3
 )
 
 func (pal *enclaveRuntimePal) Init(args string, logLevel string) error {
