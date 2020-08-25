@@ -35,4 +35,7 @@ require (
 
 )
 
-replace github.com/docker/distribution => github.com/docker/distribution v2.7.1-0.20190205005809-0d3efadf0154+incompatible
+replace (
+	github.com/docker/distribution => github.com/docker/distribution v2.7.1-0.20190205005809-0d3efadf0154+incompatible
+	// github.com/opencontainers/runc => github.com/alibaba/inclavare-containers/rune v0.0.0-20200527123028-5b951e6d3bb0
+)

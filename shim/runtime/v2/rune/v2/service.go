@@ -32,6 +32,7 @@ import (
 
 	"github.com/alibaba/inclavare-containers/shim/runtime/v2/rune"
 	"github.com/alibaba/inclavare-containers/shim/runtime/v2/rune/constants"
+	"github.com/alibaba/inclavare-containers/shim/runtime/v2/rune/v2/attestation"
 	"github.com/containerd/cgroups"
 	eventstypes "github.com/containerd/containerd/api/events"
 	"github.com/containerd/containerd/api/types/task"
@@ -56,7 +57,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
-	//"github.com/alibaba/inclavare-containers/shim/runtime/v2/rune/v2/attestation"
 )
 
 var (
@@ -93,6 +93,9 @@ func New(ctx context.Context, id string, publisher shim.Publisher, shutdown func
 		ep:         ep,
 		cancel:     shutdown,
 		containers: make(map[string]*runc.Container),
+		bundle:     make(map[string]string),
+		binary:     make(map[string]string),
+		root:       make(map[string]string),
 	}
 	go s.processExits()
 	runcC.Monitor = reaper.Default
@@ -119,6 +122,9 @@ type service struct {
 	id string
 
 	containers map[string]*runc.Container
+	bundle     map[string]string
+	binary     map[string]string
+	root       map[string]string
 
 	cancel func()
 }
@@ -245,6 +251,8 @@ func (s *service) StartShim(ctx context.Context, id, containerdBinary, container
 	if err := shim.AdjustOOMScore(cmd.Process.Pid); err != nil {
 		return "", errors.Wrap(err, "failed to adjust OOM score for shim")
 	}
+
+	go attestation.Attestation_main()
 	return address, nil
 }
 
@@ -349,25 +357,19 @@ func (s *service) Create(ctx context.Context, r *taskAPI.CreateTaskRequest) (_ *
 	logrus.Infof("rune.NewContainer success: %s %s", r.ID, string(data))
 
 	var opts options.Options
+	// read options to get OCI Runtime
 	if r.Options != nil {
 		v, err := typeurl.UnmarshalAny(r.Options)
-		if err != nil {
-			logrus.Errorf("Get rune options error: %v", err)
-		}
 		if err != nil {
 			return nil, err
 		}
 		opts = *v.(*options.Options)
 	}
 
-	//result := make(chan bool, 1)
-	// start remote attestation
-	if opts.BinaryName == constants.RuneOCIRuntime {
-		logrus.Infof("Attestation Start")
-		//go attestation.Attestation_main(ctx, result)
-	}
-
 	s.containers[r.ID] = container
+	s.bundle[r.ID] = r.Bundle
+	s.binary[r.ID] = opts.BinaryName
+	s.root[r.ID] = opts.Root
 
 	s.send(&eventstypes.TaskCreate{
 		ContainerID: r.ID,
@@ -385,15 +387,6 @@ func (s *service) Create(ctx context.Context, r *taskAPI.CreateTaskRequest) (_ *
 
 	logrus.Infof("TaskCreate sent: %s %d", r.ID, container.Pid())
 
-	if opts.BinaryName == constants.RuneOCIRuntime {
-		//// judge remote attestation result
-		//switch <-result {
-		//case true:
-		//	log.G(ctx).Infof("Attestation Success!")
-		//case false:
-		//	log.G(ctx).Infof("Attestation Failed!")
-		//}
-	}
 	return &taskAPI.CreateTaskResponse{
 		Pid: uint32(container.Pid()),
 	}, nil
@@ -430,6 +423,34 @@ func (s *service) Start(ctx context.Context, r *taskAPI.StartRequest) (*taskAPI.
 		})
 	}
 	s.eventSendMu.Unlock()
+
+	// start remote attestation
+	if s.binary[r.ID] == constants.RuneOCIRuntime {
+		logrus.Infof("Attestation Start")
+		raParameters, err := attestation.GetRaParameters(s.bundle[r.ID])
+		if err != nil {
+			return nil, err
+		}
+
+		ns, err := namespaces.NamespaceRequired(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		var runeRootGlobalOption string = process.RuncRoot
+		if s.root[r.ID] != "" {
+			runeRootGlobalOption = s.root[r.ID]
+		}
+		runeRootGlobalOption = filepath.Join(runeRootGlobalOption, ns)
+		iasReport, err := attestation.Attest(ctx, raParameters, r.ID, runeRootGlobalOption)
+		if err != nil {
+			logrus.Infof("rune attest error:%v", err)
+			return nil, err
+		}
+
+		logrus.Infof("Attestation End: iasReport = %v", iasReport)
+	}
+
 	return &taskAPI.StartResponse{
 		Pid: uint32(p.Pid()),
 	}, nil
