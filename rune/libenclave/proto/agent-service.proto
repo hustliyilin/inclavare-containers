@@ -33,6 +33,7 @@ message AgentServiceResponse {
     message Attest {
 	int32 exitCode = 1;
 	string error = 2;
+	// bytes iasResponse = 3;
     }
 
     Execute exec = 1;

@@ -161,7 +161,7 @@ func handleRequest(conn net.Conn, id int) {
 	if req.Attest != nil {
 		logrus.Infof("In function handleRequest: get a attest request")
 		resp.Attest = &pb.AgentServiceResponse_Attest{}
-		err = enclaveRuntime.LaunchAttestation(req.Attest.Spid,
+		iasReport, err := enclaveRuntime.LaunchAttestation(req.Attest.Spid,
 			req.Attest.SubscriptionKey,
 			req.Attest.Product,
 			req.Attest.QuoteType)
@@ -171,6 +171,7 @@ func handleRequest(conn net.Conn, id int) {
 			exitCode = 0
 		}
 		resp.Attest.ExitCode = exitCode
+		logrus.Infof("In function handleRequest: iasReport = %v", iasReport)
 		protoBufWrite(conn, resp)
 		return
 	}

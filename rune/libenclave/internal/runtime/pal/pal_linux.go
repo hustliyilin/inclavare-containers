@@ -10,6 +10,7 @@ import (
 	"github.com/opencontainers/runc/libenclave/attestation/sgx"
 	"github.com/opencontainers/runc/libenclave/attestation/sgx/ias"
 	"github.com/opencontainers/runc/libenclave/intelsgx"
+	"github.com/sirupsen/logrus"
 	"log"
 	"os"
 )
@@ -76,27 +77,27 @@ func parseAttestParameters(spid string, subscriptionKey string, product uint32) 
 	return p
 }
 
-func (pal *enclaveRuntimePal) Attest(spid string, subscriptionKey string, product uint32, quoteType uint32) (err error) {
+func (pal *enclaveRuntimePal) Attest(spid string, subscriptionKey string, product uint32, quoteType uint32) (map[string]string, error) {
 	if pal.GetLocalReport == nil {
-		return nil
+		return nil, nil
 	}
 
 	targetInfo, err := intelsgx.GetQeTargetInfo()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if len(targetInfo) != intelsgx.TargetinfoLength {
-		return fmt.Errorf("len(targetInfo) is not %d, but %d", intelsgx.TargetinfoLength, len(targetInfo))
+		return nil, fmt.Errorf("len(targetInfo) is not %d, but %d", intelsgx.TargetinfoLength, len(targetInfo))
 	}
 
 	// get local report of SGX
 	report, err := pal.GetLocalReport(targetInfo)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(report) != intelsgx.ReportLength {
-		return fmt.Errorf("len(report) is not %d, but %d", intelsgx.ReportLength, len(report))
+		return nil, fmt.Errorf("len(report) is not %d, but %d", intelsgx.ReportLength, len(report))
 	}
 
 	// get quote from QE(aesmd)
@@ -106,12 +107,12 @@ func (pal *enclaveRuntimePal) Attest(spid string, subscriptionKey string, produc
 	}
 	quote, err := intelsgx.GetQuote(report, spid, linkable)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	q := &intelsgx.Quote{}
 	if err := restruct.Unpack(quote, binary.LittleEndian, &q); err != nil {
-		return err
+		return nil, err
 	}
 
 	// get IAS remote attestation report
@@ -120,27 +121,28 @@ func (pal *enclaveRuntimePal) Attest(spid string, subscriptionKey string, produc
 	svc, err := attestation.NewService(p, verbose)
 	if err != nil {
 		log.Fatal(err)
-		return err
+		return nil, err
 	}
 
 	if err = svc.Check(quote); err != nil {
 		log.Fatal(err)
-		return err
+		return nil, err
 	}
 
-	nonce, iasReport, status := svc.GetIASReport(quote)
+	nonce, iasResp, status := svc.GetIASReport(quote)
 	if status.ErrorMessage != "" {
-		return fmt.Errorf("%s", status.ErrorMessage)
+		return nil, fmt.Errorf("%s", status.ErrorMessage)
 	}
 
-	var reportStatus *ias.ReportStatus
-	if reportStatus, err = ias.CheckVerificationReport(&iasReport, quote, nonce); err != nil {
+	reportStatus, iasReport, err := ias.CheckVerificationReport(&iasResp, quote, nonce)
+	if err != nil {
 		status.ErrorMessage = fmt.Sprintf("%s", err)
-		return err
+		return nil, err
 	}
 
 	status.SpecificStatus = reportStatus
 	svc.ShowStatus(status)
 
-	return nil
+	logrus.Infof("iasReport = %v\n", iasReport)
+	return iasReport, nil
 }
