@@ -4,6 +4,7 @@ import (
 	"fmt"
 	pb "github.com/opencontainers/runc/libenclave/attestation/proto"
 	"log"
+	"net/http"
 )
 
 type Service struct {
@@ -18,6 +19,7 @@ type Attester interface {
 	HandleChallengeResponse(r *pb.AttestResponse) (*Quote, error)
 	Check([]byte) error
 	Verify([]byte) *Status
+	GetIASReport(quote []byte) (string, http.Response, *Status)
 	ShowStatus(status *Status)
 }
 

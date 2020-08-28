@@ -27,7 +27,7 @@ const (
 	subscriptionKeyLength = 16
 )
 
-type reportStatus struct {
+type ReportStatus struct {
 	requestId   string
 	reportId    string
 	timestamp   string
@@ -187,6 +187,32 @@ func (ias *iasService) Check(q []byte) error {
 	return nil
 }
 
+func (ias *iasService) GetIASReport(quote []byte) (string, http.Response, *attest.Status) {
+	nonce := strconv.FormatUint(rand.Uint64(), 16) + strconv.FormatUint(rand.Uint64(), 16)
+	p := &evidencePayload{
+		IsvEnclaveQuote: base64.StdEncoding.EncodeToString(quote),
+		PseManifest:     "",
+		Nonce:           nonce,
+	}
+
+	status := &attest.Status{
+		StatusCode:   attest.StatusSgxBit,
+		ErrorMessage: "",
+	}
+
+	var resp *http.Response
+	var iasReport http.Response
+	var err error
+	if resp, err = ias.reportAttestationEvidence(p); err != nil {
+		status.ErrorMessage = fmt.Sprintf("%s", err)
+		return nonce, iasReport, status
+	}
+	defer resp.Body.Close()
+
+	iasReport = *resp
+	return nonce, iasReport, status
+}
+
 func (ias *iasService) Verify(quote []byte) *attest.Status {
 	nonce := strconv.FormatUint(rand.Uint64(), 16) + strconv.FormatUint(rand.Uint64(), 16)
 	p := &evidencePayload{
@@ -208,8 +234,8 @@ func (ias *iasService) Verify(quote []byte) *attest.Status {
 	}
 	defer resp.Body.Close()
 
-	var reportStatus *reportStatus
-	if reportStatus, err = checkVerificationReport(resp, quote, nonce); err != nil {
+	var reportStatus *ReportStatus
+	if reportStatus, err = CheckVerificationReport(resp, quote, nonce); err != nil {
 		status.ErrorMessage = fmt.Sprintf("%s", err)
 		return status
 	}
@@ -219,7 +245,7 @@ func (ias *iasService) Verify(quote []byte) *attest.Status {
 }
 
 func (ias *iasService) ShowStatus(status *attest.Status) {
-	s, ok := status.SpecificStatus.(*reportStatus)
+	s, ok := status.SpecificStatus.(*ReportStatus)
 	if ok {
 		logrus.Infof("Request ID: %s\n", s.requestId)
 		logrus.Infof("Report ID: %s\n", s.reportId)
@@ -279,8 +305,8 @@ func (ias *iasService) reportAttestationEvidence(p *evidencePayload) (*http.Resp
 	return resp, nil
 }
 
-func checkVerificationReport(resp *http.Response, quote []byte, nonce string) (*reportStatus, error) {
-	status := &reportStatus{
+func CheckVerificationReport(resp *http.Response, quote []byte, nonce string) (*ReportStatus, error) {
+	status := &ReportStatus{
 		requestId:   "",
 		reportId:    "",
 		quoteStatus: "",

@@ -8,7 +8,7 @@ import (
 	"github.com/go-restruct/restruct"
 	"github.com/opencontainers/runc/libenclave/attestation"
 	"github.com/opencontainers/runc/libenclave/attestation/sgx"
-	_ "github.com/opencontainers/runc/libenclave/attestation/sgx/ias"
+	"github.com/opencontainers/runc/libenclave/attestation/sgx/ias"
 	"github.com/opencontainers/runc/libenclave/intelsgx"
 	"log"
 	"os"
@@ -22,9 +22,9 @@ func (pal *enclaveRuntimePal) Init(args string, logLevel string) error {
 	api := &enclaveRuntimePalApiV1{}
 	ver := api.get_version()
 	if ver > palApiVersion {
-                return fmt.Errorf("unsupported pal api version %d", ver)
-        }
-        pal.version = ver
+		return fmt.Errorf("unsupported pal api version %d", ver)
+	}
+	pal.version = ver
 
 	return api.init(args, logLevel)
 }
@@ -128,11 +128,18 @@ func (pal *enclaveRuntimePal) Attest(spid string, subscriptionKey string, produc
 		return err
 	}
 
-	status := svc.Verify(quote)
+	nonce, iasReport, status := svc.GetIASReport(quote)
 	if status.ErrorMessage != "" {
 		return fmt.Errorf("%s", status.ErrorMessage)
 	}
 
+	var reportStatus *ias.ReportStatus
+	if reportStatus, err = ias.CheckVerificationReport(&iasReport, quote, nonce); err != nil {
+		status.ErrorMessage = fmt.Sprintf("%s", err)
+		return err
+	}
+
+	status.SpecificStatus = reportStatus
 	svc.ShowStatus(status)
 
 	return nil
