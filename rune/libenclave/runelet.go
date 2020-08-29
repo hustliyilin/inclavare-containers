@@ -314,7 +314,17 @@ func remoteAttest(agentPipe *os.File, config *configs.InitEnclaveConfig, notifyS
 		err = fmt.Errorf(resp.Attest.Error)
 	}
 
-	logrus.Infof("in remoteAttest of runelet, resp.Attest = %v", resp.Attest)
+	iasReport := make(map[string]string)
+
+	iasReport["StatusCode"] = resp.Attest.StatusCode
+	iasReport["Request-ID"] = resp.Attest.RequestID
+	iasReport["X-Iasreport-Signature"] = resp.Attest.XIasreportSignature
+	iasReport["X-Iasreport-Signing-Certificate"] = resp.Attest.XIasreportSigningCertificate
+	iasReport["ContentLength"] = resp.Attest.ContentLength
+	iasReport["Content-Type"] = resp.Attest.ContentType
+	iasReport["Body"] = iasReport["Body"]
+
+	logrus.Infof("iasReport = %v", iasReport)
 	return resp.Attest.ExitCode, err
 }
 
