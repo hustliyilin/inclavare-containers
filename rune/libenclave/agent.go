@@ -171,7 +171,17 @@ func handleRequest(conn net.Conn, id int) {
 			exitCode = 0
 		}
 		resp.Attest.ExitCode = exitCode
+		resp.Attest.StatusCode = iasReport["StatusCode"]
+		resp.Attest.RequestID = iasReport["Request-ID"]
+		resp.Attest.XIasreportSignature = iasReport["X-Iasreport-Signature"]
+		resp.Attest.XIasreportSigningCertificate = iasReport["X-Iasreport-Signing-Certificate"]
+		resp.Attest.ContentLength = iasReport["ContentLength"]
+		resp.Attest.ContentType = iasReport["Content-Type"]
+		resp.Attest.Body = iasReport["Body"]
+
 		logrus.Infof("In function handleRequest: iasReport = %v", iasReport)
+		logrus.Infof("resp.Attest is %v", resp.Attest)
+
 		protoBufWrite(conn, resp)
 		return
 	}
