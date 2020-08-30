@@ -252,7 +252,6 @@ func (s *service) StartShim(ctx context.Context, id, containerdBinary, container
 		return "", errors.Wrap(err, "failed to adjust OOM score for shim")
 	}
 
-	go attestation.Attestation_main()
 	return address, nil
 }
 

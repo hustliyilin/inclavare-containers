@@ -20,7 +20,7 @@ require (
 	github.com/imdario/mergo v0.3.9 // indirect
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect
-	github.com/opencontainers/runc v0.1.1 // indirect
+	github.com/opencontainers/runc v0.1.1
 	github.com/opencontainers/runtime-spec v1.0.2
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.5.0
@@ -29,7 +29,6 @@ require (
 	github.com/stretchr/testify v1.4.0
 	go.etcd.io/bbolt v1.3.4 // indirect
 	golang.org/x/sys v0.0.0-20200331124033-c3d80250170d
-	google.golang.org/grpc v1.28.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
 	k8s.io/apimachinery v0.18.2
 
@@ -38,4 +37,9 @@ require (
 replace (
 	github.com/docker/distribution => github.com/docker/distribution v2.7.1-0.20190205005809-0d3efadf0154+incompatible
 	// github.com/opencontainers/runc => github.com/alibaba/inclavare-containers/rune v0.0.0-20200527123028-5b951e6d3bb0
+	// github.com/opencontainers/runc => github.com/alibaba/inclavare-containers/rune v0.0.0-20200828143903-196cf5ad4180
+	// github.com/opencontainers/runc => github.com/alibaba/inclavare-containers/rune v0.0.0-20200824174404-0364b2ac42dc
+	// github.com/opencontainers/runc => github.com/hustliyilin/inclavare-containers/rune v0.0.0-20200512065524-c9751df2e241
+	// github.com/opencontainers/runc => github.com/hustliyilin/inclavare-containers/rune v0.0.0-20200830151934-729383d9725a
+	github.com/opencontainers/runc => github.com/hustliyilin/inclavare-containers/rune v0.0.0-20200830160541-3154e2e49306
 )
