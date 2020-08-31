@@ -1,20 +1,22 @@
 package attestation
 
 import (
-	// "bytes"
+	"bytes"
 	"context"
-	// "encoding/binary"
+	"encoding/binary"
 	"fmt"
-	"path"
-	"path/filepath"
 	"github.com/alibaba/inclavare-containers/shim/runtime/config"
 	"github.com/alibaba/inclavare-containers/shim/runtime/v2/rune/constants"
+	"github.com/golang/protobuf/proto"
+	pb "github.com/opencontainers/runc/libenclave/proto"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
-	_ "github.com/opencontainers/runc/libenclave/proto"
-	// "io"
+	"io"
 	"net"
+	"path"
+	"path/filepath"
 	"strings"
+	"unsafe"
 )
 
 const (
@@ -33,7 +35,7 @@ const (
 	ProductEnclave
 )
 
-/* func protoBufWrite(conn io.Writer, marshaled interface{}) (err error) {
+func protoBufWrite(conn io.Writer, marshaled interface{}) (err error) {
 	var data []byte
 	switch marshaled := marshaled.(type) {
 	case *pb.AgentServiceRequest:
@@ -57,36 +59,36 @@ const (
 		return err
 	}
 	return nil
-} */
+}
 
-/* func protoBufRead(conn io.Reader, unmarshaled interface{}) error {
-        var sz uint32
-        data := make([]byte, unsafe.Sizeof(sz))
-        _, err := conn.Read(data)
-        if err != nil {
-                return err
-        }
-        buf := bytes.NewBuffer(data)
-        sz = uint32(len(data))
-        if err := binary.Read(buf, binary.LittleEndian, &sz); err != nil {
-                return err
-        }
+func protoBufRead(conn io.Reader, unmarshaled interface{}) error {
+	var sz uint32
+	data := make([]byte, unsafe.Sizeof(sz))
+	_, err := conn.Read(data)
+	if err != nil {
+		return err
+	}
+	buf := bytes.NewBuffer(data)
+	sz = uint32(len(data))
+	if err := binary.Read(buf, binary.LittleEndian, &sz); err != nil {
+		return err
+	}
 
-        data = make([]byte, sz)
-        if _, err := conn.Read(data); err != nil {
-                return err
-        }
+	data = make([]byte, sz)
+	if _, err := conn.Read(data); err != nil {
+		return err
+	}
 
-        switch unmarshaled := unmarshaled.(type) {
-        case *pb.AgentServiceRequest:
-                err = proto.Unmarshal(data, unmarshaled)
-        case *pb.AgentServiceResponse:
-                err = proto.Unmarshal(data, unmarshaled)
-        default:
-                return fmt.Errorf("invalid type of unmarshaled data")
-        }
-        return err
-} */
+	switch unmarshaled := unmarshaled.(type) {
+	case *pb.AgentServiceRequest:
+		err = proto.Unmarshal(data, unmarshaled)
+	case *pb.AgentServiceResponse:
+		err = proto.Unmarshal(data, unmarshaled)
+	default:
+		return fmt.Errorf("invalid type of unmarshaled data")
+	}
+	return err
+}
 
 func dialAgentSocket(root string, containerId string) (*net.UnixConn, error) {
 	agentSock := filepath.Join(root, containerId, agentSocket)
@@ -149,7 +151,7 @@ func GetRaParameters(bundlePath string) (raParameters map[string]string, err err
 	return p, nil
 }
 
-func Attest(ctx context.Context, raParameters map[string]string, containerId string, root string) ([]byte, error) {
+func Attest(ctx context.Context, raParameters map[string]string, containerId string, root string) (map[string]string, error) {
 	if raParameters == nil {
 		return nil, nil
 	}
@@ -170,8 +172,8 @@ func Attest(ctx context.Context, raParameters map[string]string, containerId str
 		return nil, fmt.Errorf("Invalid rune global options --root")
 	}
 
-	_, err := dialAgentSocket(root, containerId)
-	// conn, err := dialAgentSocket()
+	// _, err := dialAgentSocket(root, containerId)
+	conn, err := dialAgentSocket(root, containerId)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +190,7 @@ func Attest(ctx context.Context, raParameters map[string]string, containerId str
 
 	logrus.Infof("isProductEnclave = %v, raEpidQuoteType = %v", isProductEnclave, raEpidQuoteType)
 
-	/* req := &pb.AgentServiceRequest{}
+	req := &pb.AgentServiceRequest{}
 	req.Attest = &pb.AgentServiceRequest_Attest{
 		Spid:            raParameters[constants.EnvKeyRaEpidSpid],
 		SubscriptionKey: raParameters[constants.EnvKeyRaEpidSubKey],
@@ -198,34 +200,34 @@ func Attest(ctx context.Context, raParameters map[string]string, containerId str
 
 	if err = protoBufWrite(conn, req); err != nil {
 		return nil, err
-	}*/
+	}
 
 	logrus.Infof("Begin remote attestation")
 
-	/* resp := &pb.AgentServiceResponse{}
-        if err = protoBufRead(conn, resp); err != nil {
-                return 1, err
-        } */
+	resp := &pb.AgentServiceResponse{}
+	if err = protoBufRead(conn, resp); err != nil {
+		return nil, err
+	}
 
 	logrus.Infof("End remote attestation")
 
-	/* if resp.Attest.Error == "" {
-                err = nil
-        } else {
-                err = fmt.Errorf(resp.Attest.Error)
-        }
+	if resp.Attest.Error == "" {
+		err = nil
+	} else {
+		err = fmt.Errorf(resp.Attest.Error)
+	}
 
-        iasReport := make(map[string]string)
+	iasReport := make(map[string]string)
 
-        iasReport["StatusCode"] = resp.Attest.StatusCode
-        iasReport["Request-ID"] = resp.Attest.RequestID
-        iasReport["X-Iasreport-Signature"] = resp.Attest.XIasreportSignature
-        iasReport["X-Iasreport-Signing-Certificate"] = resp.Attest.XIasreportSigningCertificate
-        iasReport["ContentLength"] = resp.Attest.ContentLength
-        iasReport["Content-Type"] = resp.Attest.ContentType
-        iasReport["Body"] = iasReport["Body"]
+	iasReport["StatusCode"] = resp.Attest.StatusCode
+	iasReport["Request-ID"] = resp.Attest.RequestID
+	iasReport["X-Iasreport-Signature"] = resp.Attest.XIasreportSignature
+	iasReport["X-Iasreport-Signing-Certificate"] = resp.Attest.XIasreportSigningCertificate
+	iasReport["ContentLength"] = resp.Attest.ContentLength
+	iasReport["Content-Type"] = resp.Attest.ContentType
+	iasReport["Body"] = resp.Attest.Body
 
-        logrus.Infof("iasReport = %v", iasReport) */
+	logrus.Infof("iasReport = %v", iasReport)
 
-	return nil, nil
+	return iasReport, nil
 }
