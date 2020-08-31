@@ -171,7 +171,7 @@ github.com/opencontainers/go-digest
 github.com/opencontainers/image-spec/identity
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
-# github.com/opencontainers/runc v0.1.1 => github.com/hustliyilin/inclavare-containers/rune v0.0.0-20200830160541-3154e2e49306
+# github.com/opencontainers/runc v0.1.1 => github.com/hustliyilin/inclavare-containers/rune v0.0.0-20200831083357-49f2a43ff9b5
 github.com/opencontainers/runc/libcontainer/system
 github.com/opencontainers/runc/libcontainer/user
 github.com/opencontainers/runc/libenclave/proto

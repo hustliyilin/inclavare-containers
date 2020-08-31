@@ -36,10 +36,5 @@ require (
 
 replace (
 	github.com/docker/distribution => github.com/docker/distribution v2.7.1-0.20190205005809-0d3efadf0154+incompatible
-	// github.com/opencontainers/runc => github.com/alibaba/inclavare-containers/rune v0.0.0-20200527123028-5b951e6d3bb0
-	// github.com/opencontainers/runc => github.com/alibaba/inclavare-containers/rune v0.0.0-20200828143903-196cf5ad4180
-	// github.com/opencontainers/runc => github.com/alibaba/inclavare-containers/rune v0.0.0-20200824174404-0364b2ac42dc
-	// github.com/opencontainers/runc => github.com/hustliyilin/inclavare-containers/rune v0.0.0-20200512065524-c9751df2e241
-	// github.com/opencontainers/runc => github.com/hustliyilin/inclavare-containers/rune v0.0.0-20200830151934-729383d9725a
-	github.com/opencontainers/runc => github.com/hustliyilin/inclavare-containers/rune v0.0.0-20200830160541-3154e2e49306
+	github.com/opencontainers/runc => github.com/hustliyilin/inclavare-containers/rune v0.0.0-20200831083357-49f2a43ff9b5
 )
