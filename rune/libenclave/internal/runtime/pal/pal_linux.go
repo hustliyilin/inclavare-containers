@@ -31,11 +31,11 @@ func (pal *enclaveRuntimePal) Init(args string, logLevel string) error {
 	api := &enclaveRuntimePalApiV1{}
 	ver := api.get_version()
 	if ver > palApiVersion {
-                return fmt.Errorf("unsupported pal api version %d", ver)
-        }
-        pal.version = ver
+		return fmt.Errorf("unsupported pal api version %d", ver)
+	}
+	pal.version = ver
 
-	C.workaround_nanosleep();
+	C.workaround_nanosleep()
 
 	return api.init(args, logLevel)
 }
@@ -87,7 +87,7 @@ func parseAttestParameters(spid string, subscriptionKey string, product uint32) 
 	return p
 }
 
-func (pal *enclaveRuntimePal) Attest(spid string, subscriptionKey string, product uint32, quoteType uint32) (err error) {
+func (pal *enclaveRuntimePal) Attest(spid string, subscriptionKey string, product uint32, quoteType uint32) error {
 	if pal.GetLocalReport == nil {
 		return nil
 	}
@@ -139,9 +139,9 @@ func (pal *enclaveRuntimePal) Attest(spid string, subscriptionKey string, produc
 		return err
 	}
 
-	status := svc.Verify(quote)
-	if status.ErrorMessage != "" {
-		return fmt.Errorf("%s", status.ErrorMessage)
+	status, _, err := svc.GetVerifiedReport(quote)
+	if err != nil {
+		return fmt.Errorf("%s", err)
 	}
 
 	svc.ShowStatus(status)

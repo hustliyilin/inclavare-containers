@@ -209,13 +209,45 @@ func (ias *iasService) Verify(quote []byte) *attest.Status {
 	defer resp.Body.Close()
 
 	var reportStatus *reportStatus
-	if reportStatus, err = checkVerificationReport(resp, quote, nonce); err != nil {
+	if reportStatus, _, err = checkVerificationReport(resp, quote, nonce); err != nil {
 		status.ErrorMessage = fmt.Sprintf("%s", err)
 		return status
 	}
 
 	status.SpecificStatus = reportStatus
 	return status
+}
+
+func (ias *iasService) GetVerifiedReport(quote []byte) (*attest.Status, map[string]string, error) {
+	nonce := strconv.FormatUint(rand.Uint64(), 16) + strconv.FormatUint(rand.Uint64(), 16)
+	p := &evidencePayload{
+		IsvEnclaveQuote: base64.StdEncoding.EncodeToString(quote),
+		PseManifest:     "",
+		Nonce:           nonce,
+	}
+
+	status := &attest.Status{
+		StatusCode:   attest.StatusSgxBit,
+		ErrorMessage: "",
+	}
+
+	var resp *http.Response
+	var err error
+	if resp, err = ias.reportAttestationEvidence(p); err != nil {
+		status.ErrorMessage = fmt.Sprintf("%s", err)
+		return status, nil, err
+	}
+	defer resp.Body.Close()
+
+	var reportStatus *reportStatus
+	reportStatus, iasReport, err := checkVerificationReport(resp, quote, nonce)
+	if err != nil {
+		status.ErrorMessage = fmt.Sprintf("%s", err)
+		return status, nil, err
+	}
+
+	status.SpecificStatus = reportStatus
+	return status, iasReport, nil
 }
 
 func (ias *iasService) ShowStatus(status *attest.Status) {
@@ -279,7 +311,7 @@ func (ias *iasService) reportAttestationEvidence(p *evidencePayload) (*http.Resp
 	return resp, nil
 }
 
-func checkVerificationReport(resp *http.Response, quote []byte, nonce string) (*reportStatus, error) {
+func checkVerificationReport(resp *http.Response, quote []byte, nonce string) (*reportStatus, map[string]string, error) {
 	status := &reportStatus{
 		requestId:   "",
 		reportId:    "",
@@ -301,43 +333,43 @@ func checkVerificationReport(resp *http.Response, quote []byte, nonce string) (*
 		default:
 		}
 
-		return status, fmt.Errorf("%s: %s", resp.Status, errMsg)
+		return status, nil, fmt.Errorf("%s: %s", resp.Status, errMsg)
 	}
 
 	reqId := resp.Header.Get("Request-ID")
 	if reqId == "" {
-		return status, fmt.Errorf("No Request-ID in response header")
+		return status, nil, fmt.Errorf("No Request-ID in response header")
 	}
 
 	status.requestId = reqId
 
 	if resp.Header.Get("X-Iasreport-Signature") == "" {
-		return status, fmt.Errorf("No X-Iasreport-Signature in response header")
+		return status, nil, fmt.Errorf("No X-Iasreport-Signature in response header")
 	}
 
 	if resp.Header.Get("X-Iasreport-Signing-Certificate") == "" {
-		return status, fmt.Errorf("No X-Iasreport-Signing-Certificate in response header")
+		return status, nil, fmt.Errorf("No X-Iasreport-Signing-Certificate in response header")
 	}
 
 	if resp.ContentLength == -1 {
-		return status, fmt.Errorf("Unknown length of response body")
+		return status, nil, fmt.Errorf("Unknown length of response body")
 	}
 
 	if resp.Header.Get("Content-Type") != "application/json" {
-		return status, fmt.Errorf("Invalid content type (%s) in response",
+		return status, nil, fmt.Errorf("Invalid content type (%s) in response",
 			resp.Header.Get("Content-Type"))
 	}
 
 	var err error
 	rawReport := make([]byte, resp.ContentLength)
 	if _, err = io.ReadFull(resp.Body, rawReport); err != nil {
-		return status, fmt.Errorf("Failed to read reponse body (%d-byte): %s",
+		return status, nil, fmt.Errorf("Failed to read reponse body (%d-byte): %s",
 			resp.ContentLength, err)
 	}
 
 	var report verificationReport
 	if err = json.Unmarshal(rawReport, &report); err != nil {
-		return status, fmt.Errorf("Failed to unmarshal attestation verification report: %s: %s",
+		return status, nil, fmt.Errorf("Failed to unmarshal attestation verification report: %s: %s",
 			rawReport, err)
 	}
 
@@ -346,19 +378,19 @@ func checkVerificationReport(resp *http.Response, quote []byte, nonce string) (*
 	status.quoteStatus = report.IsvEnclaveQuoteStatus
 
 	if report.Version != (uint32)(apiVersion) {
-		return status, fmt.Errorf("Unsupported attestation API version %d in attesation verification report",
+		return status, nil, fmt.Errorf("Unsupported attestation API version %d in attesation verification report",
 			report.Version)
 	}
 
 	if report.Nonce != nonce {
-		return status, fmt.Errorf("Invalid nonce in attestation verification report: %s",
+		return status, nil, fmt.Errorf("Invalid nonce in attestation verification report: %s",
 			report.Nonce)
 	}
 
 	if report.Id == "" || report.Timestamp == "" ||
 		report.IsvEnclaveQuoteStatus == "" ||
 		report.IsvEnclaveQuoteBody == "" {
-		return status, fmt.Errorf("Required fields in attestation verification report is not present: %s",
+		return status, nil, fmt.Errorf("Required fields in attestation verification report is not present: %s",
 			string(rawReport))
 	}
 
@@ -366,27 +398,27 @@ func checkVerificationReport(resp *http.Response, quote []byte, nonce string) (*
 		report.IsvEnclaveQuoteStatus == "CONFIGURATION_NEEDED" {
 		if report.Version == apiV3 {
 			if resp.Header.Get("Advisory-Ids") == "" || resp.Header.Get("Advisory-Url") == "" {
-				return status, fmt.Errorf("Advisory-Ids or Advisory-Url is not present in response header")
+				return status, nil, fmt.Errorf("Advisory-Ids or Advisory-Url is not present in response header")
 			}
 		} else if report.Version == apiV4 && (report.AdvisoryIds == "" || report.AdvisoryUrl == nil) {
-			return status, fmt.Errorf("Advisory-Ids or Advisory-Url is not present in attestation verification report")
+			return status, nil, fmt.Errorf("Advisory-Ids or Advisory-Url is not present in attestation verification report")
 		}
 	}
 
 	var quoteBody []byte
 	if quoteBody, err = base64.StdEncoding.DecodeString(report.IsvEnclaveQuoteBody); err != nil {
-		return status, fmt.Errorf("Invalid isvEnclaveQuoteBody: %s",
+		return status, nil, fmt.Errorf("Invalid isvEnclaveQuoteBody: %s",
 			report.IsvEnclaveQuoteBody)
 	}
 
 	if len(quoteBody) != intelsgx.QuoteBodyLength+intelsgx.ReportBodyLength {
-		return status, fmt.Errorf("Invalid length of isvEnclaveQuoteBody: %d-byte",
+		return status, nil, fmt.Errorf("Invalid length of isvEnclaveQuoteBody: %d-byte",
 			len(quoteBody))
 	}
 
 	for i, v := range quoteBody {
 		if v != quote[i] {
-			return status, fmt.Errorf("Unexpected isvEnclaveQuoteBody: %s",
+			return status, nil, fmt.Errorf("Unexpected isvEnclaveQuoteBody: %s",
 				report.IsvEnclaveQuoteBody)
 		}
 	}
@@ -394,14 +426,14 @@ func checkVerificationReport(resp *http.Response, quote []byte, nonce string) (*
 	var sig []byte
 	if sig, err = base64.StdEncoding.DecodeString(
 		resp.Header.Get("X-Iasreport-Signature")); err != nil {
-		return status, fmt.Errorf("Invalid X-Iasreport-Signature in response header: %s",
+		return status, nil, fmt.Errorf("Invalid X-Iasreport-Signature in response header: %s",
 			resp.Header.Get("X-Iasreport-Signature"))
 	}
 
 	var pemCerts string
 	if pemCerts, err = url.QueryUnescape(
 		resp.Header.Get("X-Iasreport-Signing-Certificate")); err != nil {
-		return status, fmt.Errorf("Failed to unescape X-Iasreport-Signing-Certificate in response header: %s: %s",
+		return status, nil, fmt.Errorf("Failed to unescape X-Iasreport-Signing-Certificate in response header: %s: %s",
 			resp.Header.Get("X-Iasreport-Signing-Certificate"), err)
 	}
 
@@ -413,7 +445,7 @@ func checkVerificationReport(resp *http.Response, quote []byte, nonce string) (*
 		var b *pem.Block
 
 		if b, rawPemCerts = pem.Decode(rawPemCerts); err != nil {
-			return status, fmt.Errorf("Failed to convert PEM certificate to DER format: %s: %s",
+			return status, nil, fmt.Errorf("Failed to convert PEM certificate to DER format: %s: %s",
 				pemCerts, err)
 		}
 
@@ -422,7 +454,7 @@ func checkVerificationReport(resp *http.Response, quote []byte, nonce string) (*
 		}
 
 		if b.Type != "CERTIFICATE" {
-			return status, fmt.Errorf("Returned content is not PEM certificate: %s",
+			return status, nil, fmt.Errorf("Returned content is not PEM certificate: %s",
 				b.Type)
 		}
 
@@ -431,25 +463,37 @@ func checkVerificationReport(resp *http.Response, quote []byte, nonce string) (*
 
 	var x509Certs []*x509.Certificate
 	if x509Certs, err = x509.ParseCertificates(derCerts); err != nil {
-		return status, fmt.Errorf("Failed to parse certificates: %s", err)
+		return status, nil, fmt.Errorf("Failed to parse certificates: %s", err)
 	}
 
 	cert := x509Certs[0]
 	if err = cert.CheckSignature(x509.SHA256WithRSA, rawReport, sig); err != nil {
-		return status, fmt.Errorf("Failed to verify the attestation verification report: %s",
+		return status, nil, fmt.Errorf("Failed to verify the attestation verification report: %s",
 			err)
 	}
 
 	for _, parentCert := range x509Certs[1:] {
 		if err = cert.CheckSignatureFrom(parentCert); err != nil {
-			return status, fmt.Errorf("Failed to verify the certificate (%s) with parent certificate (%s): %s",
+			return status, nil, fmt.Errorf("Failed to verify the certificate (%s) with parent certificate (%s): %s",
 				cert.Subject.String(), parentCert.Subject.String(), err)
 		}
 
 		cert = parentCert
 	}
 
-	return status, nil
+	iasReport := make(map[string]string)
+
+	iasReport["StatusCode"] = strconv.FormatUint(uint64(resp.StatusCode), 10)
+	iasReport["Request-ID"] = resp.Header.Get("Request-ID")
+	iasReport["X-Iasreport-Signature"] = resp.Header.Get("X-Iasreport-Signature")
+	iasReport["X-Iasreport-Signing-Certificate"] = resp.Header.Get("X-Iasreport-Signing-Certificate")
+	iasReport["ContentLength"] = strconv.FormatUint(uint64(resp.ContentLength), 10)
+	iasReport["Content-Type"] = resp.Header.Get("Content-Type")
+
+	respBody := string(rawReport)
+	iasReport["Body"] = respBody
+
+	return status, iasReport, nil
 }
 
 func init() {
