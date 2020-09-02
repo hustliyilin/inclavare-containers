@@ -86,16 +86,23 @@ func New(ctx context.Context, id string, publisher shim.Publisher, shutdown func
 	}
 	go ep.Run(ctx)
 	s := &service{
-		id:         id,
-		context:    ctx,
-		events:     make(chan interface{}, 128),
-		ec:         reaper.Default.Subscribe(),
-		ep:         ep,
-		cancel:     shutdown,
-		containers: make(map[string]*runc.Container),
-		bundle:     make(map[string]string),
-		binary:     make(map[string]string),
-		root:       make(map[string]string),
+		id:                                    id,
+		context:                               ctx,
+		events:                                make(chan interface{}, 128),
+		ec:                                    reaper.Default.Subscribe(),
+		ep:                                    ep,
+		cancel:                                shutdown,
+		containers:                            make(map[string]*runc.Container),
+		bundle:                                make(map[string]string),
+		binary:                                make(map[string]string),
+		root:                                  make(map[string]string),
+		iasReportStatusCode:                   make(map[string]string),
+		iasReportRequestID:                    make(map[string]string),
+		iasReportXIasreportSignature:          make(map[string]string),
+		iasReportXIasreportSigningCertificate: make(map[string]string),
+		iasReportContentLength:                make(map[string]string),
+		iasReportContentType:                  make(map[string]string),
+		iasReportBody:                         make(map[string]string),
 	}
 	go s.processExits()
 	runcC.Monitor = reaper.Default
@@ -125,6 +132,15 @@ type service struct {
 	bundle     map[string]string
 	binary     map[string]string
 	root       map[string]string
+
+	// about iasReport
+	iasReportStatusCode                   map[string]string
+	iasReportRequestID                    map[string]string
+	iasReportXIasreportSignature          map[string]string
+	iasReportXIasreportSigningCertificate map[string]string
+	iasReportContentLength                map[string]string
+	iasReportContentType                  map[string]string
+	iasReportBody                         map[string]string
 
 	cancel func()
 }
@@ -448,7 +464,21 @@ func (s *service) Start(ctx context.Context, r *taskAPI.StartRequest) (*taskAPI.
 			return nil, err
 		}
 
-		logrus.Infof("IAS Remote Attestation Response = %v", iasReport)
+		s.iasReportStatusCode[r.ID] = iasReport["StatusCode"]
+		s.iasReportRequestID[r.ID] = iasReport["Request-ID"]
+		s.iasReportXIasreportSignature[r.ID] = iasReport["X-Iasreport-Signature"]
+		s.iasReportXIasreportSigningCertificate[r.ID] = iasReport["X-Iasreport-Signing-Certificate"]
+		s.iasReportContentLength[r.ID] = iasReport["ContentLength"]
+		s.iasReportContentType[r.ID] = iasReport["Content-Type"]
+		s.iasReportBody[r.ID] = iasReport["Body"]
+
+		logrus.Infof("s.iasReportStatusCode[r.ID] = %v", s.iasReportStatusCode[r.ID])
+		logrus.Infof("s.iasReportRequestID[r.ID] = %v", s.iasReportRequestID[r.ID])
+		logrus.Infof("s.iasReportXIasreportSignature[r.ID] = %v", s.iasReportXIasreportSignature[r.ID])
+		logrus.Infof("s.iasReportXIasreportSigningCertificate[r.ID] = %v", s.iasReportXIasreportSigningCertificate[r.ID])
+		logrus.Infof("s.iasReportContentLength[r.ID] = %v", s.iasReportContentLength[r.ID])
+		logrus.Infof("s.iasReportContentType[r.ID] = %v", s.iasReportContentType[r.ID])
+		logrus.Infof("s.iasReportBody[r.ID] = %v", s.iasReportBody[r.ID])
 	}
 
 	return &taskAPI.StartResponse{
