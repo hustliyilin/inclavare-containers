@@ -1,8 +1,11 @@
 package libenclave // import "github.com/opencontainers/runc/libenclave"
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/go-restruct/restruct"
 	"github.com/opencontainers/runc/libcontainer/utils"
 	"github.com/opencontainers/runc/libenclave/attestation/sgx"
 	"github.com/opencontainers/runc/libenclave/configs"
@@ -329,6 +332,37 @@ func remoteAttest(agentPipe *os.File, config *configs.InitEnclaveConfig, notifyS
 
 		logrus.Infof("target enclave's report file %s saved", reportFile)
 	}
+
+	r := &intelsgx.Report{}
+	if err := restruct.Unpack(resp.Attest.LocalReport, binary.LittleEndian, &r); err != nil {
+		return 1, err
+	}
+
+	logrus.Infof("resp.Attest.LocalReport:")
+	logrus.Infof("  CPU SVN:                        0x%v\n",
+		hex.EncodeToString(r.CpuSvn[:]))
+	logrus.Infof("  Misc Select:                    %#08x\n",
+		r.MiscSelect)
+	logrus.Infof("  Product ID:                     0x%v\n",
+		hex.EncodeToString(r.IsvExtProdId[:]))
+	logrus.Infof("  Attributes:                     0x%v\n",
+		hex.EncodeToString(r.Attributes[:]))
+	logrus.Infof("  Enclave Hash:                   0x%v\n",
+		hex.EncodeToString(r.MrEnclave[:]))
+	logrus.Infof("  Enclave Signer:                 0x%v\n",
+		hex.EncodeToString(r.MrSigner[:]))
+	logrus.Infof("  Config ID:                      0x%v\n",
+		hex.EncodeToString(r.ConfigId[:]))
+	logrus.Infof("  ISV assigned Produdct ID:       %#04x\n",
+		r.IsvProdId)
+	logrus.Infof("  ISV assigned SVN:               %d\n",
+		r.IsvSvn)
+	logrus.Infof("  Config SVN:                     %#04x\n",
+		r.ConfigSvn)
+	logrus.Infof("  ISV assigned Product Family ID: 0x%v\n",
+		hex.EncodeToString(r.IsvFamilyId[:]))
+	logrus.Infof("  Report Data:                    0x%v\n",
+		hex.EncodeToString(r.ReportData[:]))
 
 	return resp.Attest.ExitCode, err
 }
