@@ -3,13 +3,14 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/inclavare-containers/rune/libenclave"
-	"github.com/inclavare-containers/rune/libenclave/attestation/sgx"
+	// "github.com/inclavare-containers/rune/libenclave/attestation/sgx"
 	_ "github.com/inclavare-containers/rune/libenclave/attestation/sgx/ias"
-	"github.com/inclavare-containers/rune/libenclave/intelsgx"
+	// "github.com/inclavare-containers/rune/libenclave/intelsgx"
 	"github.com/opencontainers/runc/libcontainer/utils"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/urfave/cli"
@@ -68,6 +69,14 @@ func attestProcess(context *cli.Context) (int, error) {
 	if err != nil {
 		return -1, err
 	}
+
+	root, err := getContainerRootDir(context)
+	agentSocket := filepath.Join(root, "agent.sock")
+	fmt.Printf("agentSocket = %v\n", agentSocket)
+	if err != nil {
+		return -1, err
+	}
+
 	status, err := container.Status()
 	if err != nil {
 		return -1, err
@@ -76,38 +85,17 @@ func attestProcess(context *cli.Context) (int, error) {
 		return -1, fmt.Errorf("cannot attest a container that has stopped")
 	}
 
-	config := container.EnclaveConfig()
-	if config.Enclave == nil {
-		return -1, fmt.Errorf("Attest command: container.EnclaveConfig is null")
-	}
-
 	state, err := container.State()
 	if err != nil {
 		return -1, err
 	}
 	bundle := utils.SearchLabels(state.Config.Labels, "bundle")
-	p, err := getAttestProcess(context, bundle)
+	_, err = getAttestProcess(context, bundle)
 	if err != nil {
 		return -1, err
 	}
 
-	logLevel := "info"
-	if context.GlobalBool("debug") {
-		logLevel = "debug"
-	}
-
-	r := &runner{
-		enableSubreaper: false,
-		shouldDestroy:   false,
-		container:       container,
-		consoleSocket:   context.String("console-socket"),
-		detach:          false,
-		action:          CT_ACT_RUN,
-		init:            false,
-		preserveFDs:     context.Int("preserve-fds"),
-		logLevel:        logLevel,
-	}
-	return r.run(p)
+	return 1, nil
 }
 
 func getAttestProcess(context *cli.Context, bundle string) (*specs.Process, error) {
@@ -141,7 +129,7 @@ func getAttestProcess(context *cli.Context, bundle string) (*specs.Process, erro
 		}
 	}
 	// append the passed env variables
-	isRemoteAttestation := "false"
+	/* isRemoteAttestation := "false"
 	if context.Bool("isRA") {
 		isRemoteAttestation = "true"
 	}
@@ -161,7 +149,7 @@ func getAttestProcess(context *cli.Context, bundle string) (*specs.Process, erro
 	if context.Bool("linkable") {
 		quoteType = strconv.Itoa(int(intelsgx.QuoteSignatureTypeLinkable))
 	}
-	p.Env = append(p.Env, "QUOTE_TYPE"+envSeparator+quoteType)
+	p.Env = append(p.Env, "QUOTE_TYPE"+envSeparator+quoteType) */
 
 	var AttestCommand string = "true"
 	p.Env = append(p.Env, "AttestCommand"+envSeparator+AttestCommand)

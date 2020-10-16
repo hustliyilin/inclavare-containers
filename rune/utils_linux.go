@@ -92,6 +92,22 @@ func getContainer(context *cli.Context) (libenclave.Container, error) {
 	return factory.Load(id)
 }
 
+func getContainerRootDir(context *cli.Context) (string, error) {
+	id := context.Args().First()
+	if id == "" {
+		return "", errEmptyID
+	}
+
+	root := context.GlobalString("root")
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+
+	ContainerRoot := filepath.Join(abs, id)
+	return ContainerRoot, err
+}
+
 func fatalf(t string, v ...interface{}) {
 	fatal(fmt.Errorf(t, v...))
 }
