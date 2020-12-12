@@ -1,14 +1,14 @@
 name: Run rune on ubuntu with docker and crictl test
 
 # Controls when the action will run. Triggers the workflow on pull request labeled testing-before-checkin.
-on:
-  pull_request:
-    types: labeled
+on: [push, pull_request]
+  # pull_request:
+    # types: labeled
 
 jobs:
   # TODO: add rune circtl test on ubuntu image.
   rune_ubuntu:
-    if: ${{ contains(github.event.pull_request.labels.*.name, 'testing-before-checkin') }}
+    # if: ${{ contains(github.event.pull_request.labels.*.name, 'testing-before-checkin') }}
     runs-on: self-hosted
     steps:
     - uses: actions/checkout@v1
@@ -89,10 +89,8 @@ jobs:
         occlum package occlum_instance.tar.gz"
 
         docker exec $ubuntu bash -c "cat <<- EOF >/root/occlum_instance/Dockerfile
-        FROM centos:8.1.1911
-        RUN mkdir -p /run/rune
-        WORKDIR /run/rune
-        ADD occlum_instance.tar.gz /run/rune
+        FROM scratch
+        ADD occlum_instance.tar.gz /
         ENTRYPOINT [\"/bin/hello_world\"]
         EOF"
 
@@ -109,13 +107,11 @@ jobs:
         cd /root/inclavare-containers/rune/libenclave/internal/runtime/pal/skeleton
         make -j${CPU_NUM} && cp liberpal-skeleton-v*.so /usr/lib;
         cat >Dockerfile <<-EOF
-        FROM centos:8.1.1911
+        FROM scratch
 
-        RUN mkdir -p /run/rune
-        WORKDIR /run/rune
-
-        COPY encl.bin .
-        COPY encl.ss .
+        COPY encl.bin /
+        COPY encl.ss /
+        ENTRYPOINT [\"dummy\"]
         EOF"
 
         docker exec $ubuntu bash -c "cd /root/inclavare-containers/rune/libenclave/internal/runtime/pal/skeleton;
