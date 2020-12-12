@@ -1,0 +1,159 @@
+name: Run rune on ubuntu with pouch test
+
+# Controls when the action will run. Triggers the workflow on pull request labeled testing-before-checkin.
+on: [push, pull_request]
+  # pull_request:
+  #  types: labeled
+
+jobs:
+  # TODO: add rune circtl test on ubuntu image.
+  rune_ubuntu:
+    # if: ${{ contains(github.event.pull_request.labels.*.name, 'testing-before-checkin') }}
+    runs-on: self-hosted
+    steps:
+    - uses: actions/checkout@v1
+
+      # We usually update rune.spec to the latest version before release. Therefore we get the latest version according to rune.spec.
+    - name: Get version
+      run: wget https://raw.githubusercontent.com/occlum/occlum/master/src/pal/include/occlum_version.h;
+        echo "OCCLUM_VERSION=$(grep 'Version =' occlum_version.h | awk '{print $4}')" >> $GITHUB_ENV && rm -f occlum_version.h;
+        echo "RUNE_VERSION=$(grep 'Version:' rune/dist/rpm/rune.spec | awk '{print $2}')" >> $GITHUB_ENV;
+        echo "CPU_NUM=$(grep 'processor' /proc/cpuinfo | sort -u | wc -l)" >> $GITHUB_ENV
+
+    - name: Create ubuntu container
+      run: |
+        ubuntu=$(docker run -itd --privileged --rm --net host --device /dev/isgx -v $GITHUB_WORKSPACE:/root/inclavare-containers occlum/occlum:$OCCLUM_VERSION-ubuntu18.04)
+        echo "ubuntu=$ubuntu" >> $GITHUB_ENV
+
+    - name: Install dependencies on ubuntu
+      run: docker exec $ubuntu bash -c "apt-get update;
+        apt-get install libseccomp-dev;
+        cd /root && wget https://dl.google.com/go/go1.14.2.linux-amd64.tar.gz;
+        tar -zxvf /root/go1.14.2.linux-amd64.tar.gz -C /usr/lib;
+        echo 'export GOROOT=/usr/lib/go' >> /etc/profile;
+        echo 'export GOPATH=/root/gopath' >> /etc/profile;
+        echo 'export PATH=\$GOROOT/bin:\$PATH:\$GOPATH/bin' >> /etc/profile;
+        echo 'export GOPROXY="https://mirrors.aliyun.com/goproxy,direct"' >>/etc/profile;
+        echo 'export PKG_CONFIG_PATH=/usr/lib/pkgconfig' >>/etc/profile;
+        echo 'export GO111MODULE=on' >>/etc/profile"
+
+    - name: Build and install shim-rune deb
+      run: docker exec $ubuntu bash -c "cd /root;
+        cp -r inclavare-containers inclavare-containers-$RUNE_VERSION;
+        tar zcf v$RUNE_VERSION.tar.gz inclavare-containers-$RUNE_VERSION;
+        pushd /root/inclavare-containers-$RUNE_VERSION;
+        echo "$RUNE_VERSION" > VERSION;
+        sed -i '17 d' shim/dist/deb/build.sh;
+        sed -i '17icp /root/v*.tar.gz \$DEBBUILD_DIR' shim/dist/deb/build.sh;
+        source /etc/profile;
+        make package components=shim;
+        dpkg -i shim-rune_$RUNE_VERSION-1_amd64.deb;
+        popd"
+
+    - name: Configure shim-rune
+      run: docker exec $ubuntu bash -c "sed -i '7 a \\\tsignature_method = \"client\"' /etc/inclavare-containers/config.toml"
+    
+    - name: Build and install rune binary
+      run: docker exec $ubuntu bash -c "source /etc/profile;
+        cd /root/inclavare-containers;
+        make -j${CPU_NUM} && make install -j${CPU_NUM}"
+
+    - name: Install and configure docker on ubuntu
+      run: |
+        docker exec $ubuntu bash -c "apt-get install -y apt-transport-https ca-certificates curl software-properties-common;
+        curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg | apt-key add -;
+        add-apt-repository 'deb [arch=amd64] https://mirrors.aliyun.com/docker-ce/linux/ubuntu bionic stable';
+        apt-get update && apt-get install -y docker-ce"
+
+        docker exec $ubuntu bash -c "mkdir -p /etc/docker;
+        cat <<- EOF >/etc/docker/daemon.json
+        {
+            \"runtimes\":{
+                \"rune\":{
+                    \"path\":\"/usr/local/bin/rune\",
+                    \"runtimeArgs\":[]
+                  }
+              },
+              \"storage-driver\": \"vfs\"
+        }
+        EOF"
+
+        docker exec $ubuntu bash -c "service docker start"
+
+    - name: Build Occlum Application Image on ubuntu
+      run: |
+        docker exec $ubuntu bash -c "cat <<- EOF >/root/hello_world.c
+        "#include\<stdio.h\>"
+        int main (void)
+        {
+            printf(\"Hello World\n\");
+            return 0;
+        }
+        EOF"
+
+        docker exec $ubuntu bash -c "occlum-gcc -o hello_world hello_world.c;
+        occlum new occlum_instance && cd occlum_instance;
+        cp ../hello_world image/bin/ && occlum build;
+        occlum package occlum_instance.tar.gz"
+
+        docker exec $ubuntu bash -c "cat <<- EOF >/root/occlum_instance/Dockerfile
+        FROM centos:8.1.1911
+        RUN mkdir -p /run/rune
+        WORKDIR /run/rune
+        ADD occlum_instance.tar.gz /run/rune
+        ENTRYPOINT [\"/bin/hello_world\"]
+        EOF"
+
+        docker exec $ubuntu bash -c "cd /root/occlum_instance;
+        docker build . -t occlum-app"
+
+    - name: Run Occlum image on ubuntu
+      run: docker exec $ubuntu bash -c "docker run -i --rm --runtime=rune -e ENCLAVE_TYPE=intelSgx -e ENCLAVE_RUNTIME_PATH=/opt/occlum/build/lib/libocclum-pal.so -e ENCLAVE_RUNTIME_ARGS=occlum_instance occlum-app"
+
+    - name: Docker save Occlum image
+      run: docker exec  $ubuntu bash -c "docker save -o occlum-app.tar occlum-app"
+
+    - name: Build and install pouch
+      run: docker exec $ubuntu bash -c "source /etc/profile;
+        mkdir -p /root/gopath/src/github.com/alibaba;
+        cd /root/gopath/src/github.com/alibaba;
+        export https_proxy=socks5://localhost:5432;
+        export no_proxy=localhost,127.0.0.1,mirror.aliyuncs.com,alibaba-inc.com;
+        git clone https://github.com/alibaba/pouch.git;
+        cd pouch;
+        git checkout master;
+        export GO111MODULE=off;
+        make build -j${CPU_NUM} && make install -j${CPU_NUM}"
+    
+    - name: Configure pouchd
+      run: |
+        docker exec $ubuntu bash -c "mkdir -p /etc/pouch;
+        cat <<- EOF >/etc/pouch/config.json
+        {
+            \"add-runtime\":{
+                \"rune\":{
+                    \"path\":\"/usr/local/bin/rune\",
+                    \"runtimeArgs\":null,
+                    \"type\":\"io.containerd.rune.v2\"
+                  }
+              }
+        }
+        EOF"
+
+    - name: Pouch load occlum-app image
+      run: docker exec $ubuntu bash -c "service docker stop"
+        
+        docker exec $ubuntu bash -c "pouchd" &
+        
+        docker exec -f $ubuntu bash -c "pouch load -i occlum-app.tar"
+
+    - name: Pouch run with shim-rune and run through env
+      run: docker exec $ubuntu bash -c "sleep 20;
+        pouch run -it --rm --runtime=rune -e ENCLAVE_TYPE=intelSgx -e ENCLAVE_RUNTIME_PATH=/opt/occlum/build/lib/libocclum-pal.so -e ENCLAVE_RUNTIME_ARGS=occlum_instance docker.io/library/occlum-app"
+
+    - name: Pouch run with shim-rune and run through annotations
+      run: docker exec $ubuntu bash -c "pouch run -it --rm --runtime=rune --annotation \"enclave.type=intelSgx\" --annotation \"enclave.runtime.path=/opt/occlum/build/lib/libocclum-pal.so\" --annotation \"enclave.runtime.args=occlum_instance\" docker.io/library/occlum-app"
+
+    - name: Kill the container
+      if: always()
+      run: docker stop $ubuntu

@@ -1,0 +1,107 @@
+name: Run rune on centos with docker and crictl test
+
+# Controls when the action will run. Triggers the workflow on pull request labeled testing-before-checkin.
+on: [push, pull_request]
+  # pull_request:
+  #  types: labeled
+
+jobs:
+  rune_centos:
+    # if: ${{ contains(github.event.pull_request.labels.*.name, 'testing-before-checkin') }}
+    runs-on: self-hosted
+    steps:
+    - uses: actions/checkout@v1
+
+    - name: Get version
+      run: echo "RUNE_VERSION=$(grep 'Version:' rune/dist/rpm/rune.spec | awk '{print $2}')" >> $GITHUB_ENV;
+        echo "CPU_NUM=$(grep 'processor' /proc/cpuinfo | sort -u | wc -l)" >> $GITHUB_ENV
+
+    - name: Create centos container
+      run: |
+        centos=$(docker run -itd --privileged --net host --device /dev/isgx -v $GITHUB_WORKSPACE:/root/inclavare-containers crictl-occlum:centos8.1)
+        echo "centos=$centos" >> $GITHUB_ENV
+
+    - name: Install dependencies on centos
+      run: docker exec $centos bash -c "yum install -y libseccomp-devel;
+        cd /root && wget -q https://dl.google.com/go/go1.14.2.linux-amd64.tar.gz;
+        tar -zxf /root/go1.14.2.linux-amd64.tar.gz -C /usr/lib;
+        echo 'export GOROOT=/usr/lib/go' >> /etc/profile;
+        echo 'export GOPATH=/root/gopath' >> /etc/profile;
+        echo 'export PATH=\$GOROOT/bin:\$PATH:\$GOPATH/bin' >> /etc/profile;
+        echo 'export GOPROXY="https://mirrors.aliyun.com/goproxy,direct"' >>/etc/profile;
+        echo 'export GO111MODULE=on' >>/etc/profile"
+
+    - name: Build and install rune and shim-rune rpm
+      run: docker exec $centos bash -c "cd /root && source /etc/profile;
+        cp -r inclavare-containers inclavare-containers-$RUNE_VERSION;
+        tar zcf v$RUNE_VERSION.tar.gz inclavare-containers-$RUNE_VERSION;
+        cd /root/inclavare-containers-$RUNE_VERSION;
+        mkdir -p /root/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS};
+        cp /root/v$RUNE_VERSION.tar.gz /root/rpmbuild/SOURCES/;
+        echo "$RUNE_VERSION" > VERSION;
+        find ./ -path "*dist/Makefile" | xargs -I files sed -i '16 d' files;
+        make package RPMBUILD_DIR=/root/rpmbuild RELEASE_TARBALL_FILE=/root/rpmbuild/SOURCES/v$RUNE_VERSION.tar.gz RELEASE_TARBALL_EXIST=y -j${CPU_NUM};
+        rpm -ivh rune-$RUNE_VERSION-1.el8.x86_64.rpm;
+        rpm -ivh shim-rune-$RUNE_VERSION-1.el8.x86_64.rpm"
+
+    - name: Configure shim-rune
+      run: docker exec $centos bash -c "sed -i '7 a \\\tsignature_method = \"client\"' /etc/inclavare-containers/config.toml"
+
+    - name: Build Occlum application image on centos
+      run: docker exec $centos bash -c "dockerd -b docker0 --storage-driver=vfs &"
+
+        docker exec $centos bash -c "occlum-gcc -o hello_world hello_world.c;
+        occlum new occlum_instance && cd occlum_instance;
+        cp ../hello_world image/bin/ && occlum build;
+        occlum package occlum_instance.tar.gz;
+        cp /root/Dockerfile /root/occlum_instance;
+        docker build . -t occlum-app"
+
+    - name: Run Occlum image on centos
+      run: docker exec $centos bash -c "source /etc/profile; docker run -i --rm --runtime=rune -e ENCLAVE_TYPE=intelSgx -e ENCLAVE_RUNTIME_PATH=/opt/occlum/build/lib/libocclum-pal.so -e ENCLAVE_RUNTIME_ARGS=occlum_instance occlum-app"
+
+    - name: Docker save Occlum image
+      run: docker exec $centos bash -c "docker save -o occlum-app.tar occlum-app"
+
+    - name: Build and install pouch
+      run: docker exec $centos bash -c "source /etc/profile;
+        mkdir -p /root/gopath/src/github.com/alibaba;
+        cd /root/gopath/src/github.com/alibaba;
+        export https_proxy=socks5://localhost:5432;
+        export no_proxy=localhost,127.0.0.1,mirror.aliyuncs.com,alibaba-inc.com;
+        git clone https://github.com/alibaba/pouch.git;
+        cd pouch;
+        git checkout master;
+        export GO111MODULE=off;
+        make build -j${CPU_NUM} && make install -j${CPU_NUM}"
+        
+    - name: Configure pouchd
+      run: |
+        docker exec $centos bash -c "mkdir -p /etc/pouch;
+        cat <<- EOF >/etc/pouch/config.json
+        {
+            \"add-runtime\":{
+                \"rune\":{
+                    \"path\":\"/usr/local/bin/rune\",
+                    \"runtimeArgs\":null,
+                    \"type\":\"io.containerd.rune.v2\"
+                  }
+              }
+        }
+        EOF"
+
+    - name: Pouch load occlum-app image
+      run: docker exec $centos bash -c "pouchd" &
+
+         docker exec -d $centos bash -c "pouch load -i occlum-app.tar"
+
+    - name: Pouch run with shim-rune and run through env
+      run: docker exec $centos bash -c "sleep 20;
+        pouch run -it --rm --runtime=rune -e ENCLAVE_TYPE=intelSgx -e ENCLAVE_RUNTIME_PATH=/opt/occlum/build/lib/libocclum-pal.so -e ENCLAVE_RUNTIME_ARGS=occlum_instance docker.io/library/occlum-app"
+
+    - name: Pouch run with shim-rune and run through annotations
+      run: docker exec $centos bash -c "pouch run -it --rm --runtime=rune --annotation \"enclave.type=intelSgx\" --annotation \"enclave.runtime.path=/opt/occlum/build/lib/libocclum-pal.so\" --annotation \"enclave.runtime.args=occlum_instance\" docker.io/library/occlum-app"
+
+    - name: Kill the container
+      if: always()
+      run: docker stop $centos
