@@ -43,18 +43,9 @@ For example, generate the quote file according to the given local report file:
 		},
 	},
 	Action: func(context *cli.Context) error {
-		if context.Bool("isDCAP") {
-			return fmt.Errorf("Unsupport the DCAP attestation type")
-		}
-
 		reportPath := context.String("report")
 		if reportPath == "" {
 			return fmt.Errorf("report argument cannot be empty")
-		}
-
-		spid := context.String("spid")
-		if spid == "" {
-			return fmt.Errorf("spid argument cannot be empty")
 		}
 
 		if context.GlobalBool("verbose") {
@@ -90,21 +81,33 @@ For example, generate the quote file according to the given local report file:
 			return fmt.Errorf("report file %s read failed", reportPath)
 		}
 
-		linkable := false
-		if context.Bool("linkable") {
-			linkable = true
-		}
+		if context.Bool("isDCAP") {
+			_, err := GetDCAPQuote(buf)
+			if err != nil {
+				return err
+			}
+		} else {
+			spid := context.String("spid")
+			if spid == "" {
+				return fmt.Errorf("spid argument cannot be empty")
+			}
 
-		quote, err := intelsgx.GetQuote(buf, spid, linkable)
-		if err != nil {
-			return err
-		}
+			linkable := false
+			if context.Bool("linkable") {
+				linkable = true
+			}
 
-		if err := ioutil.WriteFile(quotePath, quote, 0664); err != nil {
-			return err
-		}
+			quote, err := intelsgx.GetQuote(buf, spid, linkable)
+			if err != nil {
+				return err
+			}
 
-		logrus.Infof("target enclave's quote file %s saved", quotePath)
+			if err := ioutil.WriteFile(quotePath, quote, 0664); err != nil {
+				return err
+			}
+
+			logrus.Infof("target enclave's quote file %s saved", quotePath)
+		}
 
 		return nil
 	},
