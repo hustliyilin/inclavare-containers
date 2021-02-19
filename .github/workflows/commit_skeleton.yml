@@ -145,7 +145,7 @@ jobs:
     - name: Verify quote with sgx-tools
       if: ${{ contains(matrix.sgx, 'SGX1') }}
       run: docker exec $rune_test bash -c "cd rootfs;
-        sgx-tools -verbose verify-quote --quote quote.bin --spid=${{ secrets.SPID }} --subscription-key=${{ secrets.SUB_KEY }}"
+        sgx-tools -verbose verify-quote --quote quote.bin --spid=${{ secrets.SPID }} --subscription-key=${{ secrets.SUB_KEY }} --quote-type=epidUnlinkable"
 
     - name: Kill the container
       run: docker stop $rune_test
