@@ -30,6 +30,22 @@ jobs:
         fi;
         echo "rune_test=$rune_test" >> $GITHUB_ENV
 
+    - name: Install alinux dependency
+      if: ${{ contains(matrix.tag, 'alinux') }}
+      run: docker exec $rune_test bash -c 'yum install -y libseccomp-devel iptables;
+        wget https://download.docker.com/linux/static/stable/x86_64/docker-18.09.7.tgz;
+        tar -zxvf docker-18.09.7.tgz;
+        mv docker/* /usr/bin;
+        rm -rf docker;
+        mkdir -p /etc/docker;
+        echo -e "{\n\t\"runtimes\"":" {\n\t\t\"rune\"":" {\n\t\t\t\"path\"":" \"/usr/local/bin/rune\",\n\t\t\t\"runtimeArgs\"":" []\n\t\t}\n\t}\n}" >> /etc/docker/daemon.json;
+        cp -r /root/inclavare-containers/.github/workflows/docker/* /root/'
+
+    - name: Install alinux sgx1 extra dependency
+      if: ${{ contains(matrix.tag, 'alinux') && contains(matrix.sgx, 'SGX1') }}
+      run: docker exec $rune_test bash -c '
+            yum install -y alinux-release-experimentals protobuf'
+
     - name: Build and install packages
       run: docker exec $rune_test bash -c "cp -r /root/inclavare-containers /root/inclavare-containers-test; 
         cd /root/inclavare-containers-test/rune;
