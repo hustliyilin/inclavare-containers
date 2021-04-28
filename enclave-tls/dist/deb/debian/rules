@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+BUILD_ROOT := $(CURDIR)/debian/enclave-tls
+BUILD_DIR := /usr/local/bin
+LICENSE := /usr/share/licenses/enclave-tls
+# LIBRARY_PATH := $LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib/gcc/x86_64-linux-gnu/7
+# LDFLAGS := -fPIC -L/usr/local/opt/openssl/lib -I/usr/lib/x86_64-linux-gnu -L/lib/x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/7 -lgcc -m32 -shared 
+# LDFLAGS := -shared -Bsymbolic
+
+%:
+	dh $@
+
+# override_dh_auto_clean:
+override_dh_auto_build:
+	# echo $LDFLAGS
+	cd enclave-tls/src/external/wolfssl && git clone -b v4.6.0-stable https://github.com/wolfSSL/wolfssl && cd wolfssl && git apply --reject ../patch/wolfssl.patch && ./autogen.sh && CFLAGS="-DWOLFSSL_SGX_ATTESTATION -DWOLFSSL_ALWAYS_VERIFY_CB -DKEEP_PEER_CERT -Wno-stringop-truncation -DWOLFSSL_SGX_ATTESTATION -DWOLFSSL_KEY_GEN -DWOLFSSL_CERT_GEN -DWOLFSSL_CERT_EXT -DWOLFSSL_ALWAYS_VERIFY_CB -DKEEP_PEER_CERT -DWOLFSSL_TEST_CERT -DWOLFSSL_SMALL_CERT_VERIFY -Wno-stringop-truncation -std=gnu11 -fPIC -O2 -O2 -O2 " LDFLAGS="-fPIC " ./configure --enable-writedup --enable-shared --enable-static --enable-keygen --enable-certgen --enable-certext --with-pic --disable-examples --disable-crypttests --enable-aesni --enable-tlsv10 --host=x86_64 && cd ../../../../ && make
+
+override_dh_auto_install:
+	install -d -p $(BUILD_ROOT)$(BUILD_DIR)
+	install -p -m 755 $(CURDIR)/enclave-tls/enclave-tls $(BUILD_ROOT)$(BUILD_DIR)
+	install -d -p $(BUILD_ROOT)$(LICENSE)
+	install -p -m 644 $(CURDIR)/enclave-tls/LICENSE $(BUILD_ROOT)$(LICENSE)
+override_dh_usrlocal:
