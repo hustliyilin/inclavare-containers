@@ -1,0 +1,62 @@
+name: Basic Packages Build Check
+
+on: pull_request
+
+jobs:
+  basic_packages_build_check:
+    # Run all steps in the compilation testing containers
+    strategy:
+      matrix:
+        tag: [ubuntu18.04, centos8.2, alinux2]
+
+    container: runetest/compilation-testing:${{ matrix.tag }}
+
+    # Use GitHub-hosted runner Ubuntu 18.04
+    runs-on: ubuntu-18.04
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ github.workspace }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Get Version
+        run:
+          echo "VERSION=$(cat ./VERSION)" >> $GITHUB_ENV;
+          
+      - name: build and install rpm packages
+        if: ${{ contains(matrix.tag, 'centos') || contains(matrix.tag, 'alinux2') }}
+        run:
+          cd ../;
+          cp -r inclavare-containers inclavare-containers-$VERSION;
+          tar zcf v$VERSION.tar.gz inclavare-containers-$VERSION;
+          mkdir -p /root/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS};
+          cp -f v$VERSION.tar.gz /root/rpmbuild/SOURCES;
+          cd inclavare-containers;
+          find ./ -path '*dist/Makefile' | xargs -I files sed -i '16 d' files;
+          sed -i 's/shelter//g' Makefile;
+          sed -i 's/inclavared//g' Makefile;
+          yum install -y rpm-build;
+          make package RPMBUILD_DIR=/root/rpmbuild RELEASE_TARBALL_FILE=/root/rpmbuild/SOURCES/v$VERSION.tar.gz RELEASE_TARBALL_EXIST=y;
+          rpm -ivh rune*.rpm shim-rune*.rpm sgx-tools*.rpm;
+          which rune containerd-shim-rune-v2 sgx-tools
+
+      - name: build and install deb packages
+        if: ${{ contains(matrix.tag, 'ubuntu') }}
+        run:
+          cd ../;
+          cp -r inclavare-containers inclavare-containers-$VERSION;
+          tar zcf v$VERSION.tar.gz inclavare-containers-$VERSION;
+          mv v$VERSION.tar.gz /root;
+          cd inclavare-containers;
+          find ./ -path "*deb/build.sh" | xargs -I files sed -i '17 d' files;
+          find ./ -path "*deb/build.sh" | xargs -I files sed -i '17icp /root/v*.tar.gz \$DEBBUILD_DIR' files;
+          sed -i 's/shelter//g' Makefile;
+          sed -i 's/inclavared//g' Makefile;
+          apt-get update -y && apt-get install -y debhelper;
+          make package;
+          dpkg -i rune*.deb shim-rune*.deb sgx-tools*.deb;
+          which rune containerd-shim-rune-v2 sgx-tools
